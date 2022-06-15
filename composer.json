@@ -1,0 +1,26 @@
+{
+    "name": "andersundsehr/sentry-async",
+    "type": "symfony-bundle",
+    "description": "Asynchronous Sentry for Symfony - Fire and forget",
+    "keywords": ["logging", "errors", "symfony", "sentry"],
+    "homepage": "https://www.andersundsehr.com",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Stefan Lamm",
+            "email": "s.lamm@andersundsehr.com"
+        }
+    ],
+    "config": {
+        "sort-packages": true,
+    },
+    "require": {
+        "sentry/sentry-symfony": "^4.3",
+        "ext-fileinfo": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "AUS\\AsyncSentry\\": "src/"
+        }
+    }
+}
