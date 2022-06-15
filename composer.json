@@ -20,7 +20,7 @@
     },
     "autoload": {
         "psr-4": {
-            "AUS\\AsyncSentry\\": "src/"
+            "AUS\\SentryAsync\\": "src/"
         }
     }
 }
