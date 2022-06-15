@@ -12,7 +12,7 @@
         }
     ],
     "config": {
-        "sort-packages": true,
+        "sort-packages": true
     },
     "require": {
         "sentry/sentry-symfony": "^4.3",
