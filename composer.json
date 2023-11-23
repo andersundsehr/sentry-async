@@ -1,26 +1,41 @@
 {
-    "name": "andersundsehr/sentry-async",
-    "type": "symfony-bundle",
-    "description": "Asynchronous Sentry for Symfony - Fire and forget",
-    "keywords": ["logging", "errors", "symfony", "sentry"],
-    "homepage": "https://www.andersundsehr.com",
-    "license": "MIT",
-    "authors": [
-        {
-            "name": "Stefan Lamm",
-            "email": "s.lamm@andersundsehr.com"
-        }
-    ],
-    "config": {
-        "sort-packages": true
-    },
-    "require": {
-        "sentry/sentry-symfony": "^4.3",
-        "ext-fileinfo": "*"
-    },
-    "autoload": {
-        "psr-4": {
-            "AUS\\SentryAsync\\": "src/"
-        }
+  "name": "andersundsehr/sentry-async",
+  "description": "Asynchronous Sentry for Symfony - Fire and forget",
+  "license": "MIT",
+  "type": "symfony-bundle",
+  "keywords": [
+    "logging",
+    "errors",
+    "symfony",
+    "sentry"
+  ],
+  "authors": [
+    {
+      "name": "Stefan Lamm",
+      "email": "s.lamm@andersundsehr.com"
     }
+  ],
+  "homepage": "https://www.andersundsehr.com",
+  "require": {
+    "ext-fileinfo": "*",
+    "sentry/sentry-symfony": "^4.12.0"
+  },
+  "require-dev": {
+    "pluswerk/grumphp-config": "^6.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "AUS\\SentryAsync\\": "src/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "ergebnis/composer-normalize": true,
+      "php-http/discovery": true,
+      "phpro/grumphp": true,
+      "phpstan/extension-installer": true,
+      "pluswerk/grumphp-config": true
+    },
+    "sort-packages": true
+  }
 }

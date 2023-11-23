@@ -10,36 +10,31 @@ use GuzzleHttp\Promise\RejectedPromise;
 use AUS\SentryAsync\Queue\Entry;
 use AUS\SentryAsync\Queue\QueueInterface;
 use RuntimeException;
+use Sentry\Dsn;
 use Sentry\Event;
+use Sentry\EventType;
 use Sentry\Options;
 use Sentry\Response;
 use Sentry\ResponseStatus;
 use Sentry\Serializer\PayloadSerializerInterface;
 use Sentry\Transport\TransportInterface;
 
-class QueueTransport implements TransportInterface
+readonly class QueueTransport implements TransportInterface
 {
-    private Options $options;
-    private PayloadSerializerInterface $payloadSerializer;
-    private QueueInterface $queue;
-
-    public function __construct(Options $options, PayloadSerializerInterface $payloadSerializer, QueueInterface $queue) {
-        $this->options = $options;
-        $this->payloadSerializer = $payloadSerializer;
-        $this->queue = $queue;
+    public function __construct(private PayloadSerializerInterface $payloadSerializer, private QueueInterface $queue, private Options $options)
+    {
     }
 
     public function send(Event $event): PromiseInterface
     {
-        $dsn = $this->options->getDsn();
-
-        if (null === $dsn) {
-            return new RejectedPromise(new RuntimeException(sprintf('The DSN option must be set to use the "%s" transport.', self::class)));
-        }
-
         $serializedPayload = $this->payloadSerializer->serialize($event);
 
-        $entry = new Entry((string)$dsn, (string)$event->getType(), $serializedPayload);
+        $eventType = $event->getType();
+        $isEnvelope = $this->options->isTracingEnabled() ||
+            EventType::transaction() === $eventType ||
+            EventType::checkIn() === $eventType;
+
+        $entry = new Entry((string)$this->options->getDsn(), (string)$event->getType(), $isEnvelope, $serializedPayload);
         $this->queue->push($entry);
 
         $sendResponse = new Response(ResponseStatus::createFromHttpStatusCode(200));

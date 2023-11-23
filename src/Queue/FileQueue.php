@@ -4,32 +4,27 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Queue;
 
+use JsonException;
 use Exception;
 use FilesystemIterator;
 use RuntimeException;
 
-class FileQueue implements QueueInterface
+readonly class FileQueue implements QueueInterface
 {
-    private string $directory;
-    private int $limit;
-    private bool $compress;
-    public function __construct(int $limit, bool $compress, string $directory)
+    public function __construct(private int $limit, private bool $compress, private string $directory)
     {
-        $this->directory = $directory;
-        $this->limit = $limit;
-        $this->compress = $compress;
         if (!file_exists($this->directory)) {
             try {
                 if (!mkdir($concurrentDirectory = $this->directory, 0777, true) && !is_dir($concurrentDirectory)) {
                     throw new RuntimeException(sprintf('Directory "%s" was not created', $concurrentDirectory));
                 }
-            } catch (Exception $exception) {}
+            } catch (Exception) {
+            }
         }
     }
 
     /**
-     * @return \AUS\SentryAsync\Queue\Entry|null
-     * @throws \JsonException
+     * @throws JsonException
      */
     public function pop(): ?Entry
     {
@@ -40,12 +35,18 @@ class FileQueue implements QueueInterface
                     break;
                 }
             }
+
             closedir($h);
         }
+
         if ($file) {
             $absFile = $this->directory . $file;
             // $content = file_get_contents($absFile);
             $fp = fopen($absFile, 'rb');
+            if (false === $fp) {
+                return null;
+            }
+
             $mime = mime_content_type($absFile);
             switch ($mime) {
                 case 'application/json':
@@ -55,10 +56,10 @@ class FileQueue implements QueueInterface
                     break;
                 default:
             }
+
             $content = stream_get_contents($fp);
             fclose($fp);
 
-            unlink($absFile);
             if (!$content) {
                 return null;
             }
@@ -67,18 +68,22 @@ class FileQueue implements QueueInterface
             if (!$data) {
                 return null;
             }
+
             if (!isset($data['dsn'], $data['type'], $data['payload'])) {
                 return null;
             }
-            return new Entry($data['dsn'], $data['type'], $data['payload']);
+
+            unlink($absFile);
+            return new Entry($data['dsn'], $data['type'], $data['isEnvelope'] ?? false, $data['payload']);
         }
+
         return null;
     }
 
     public function push(Entry $entry): void
     {
         /** @noinspection JsonEncodingApiUsageInspection */
-        $data = @json_encode($entry);
+        $data = @json_encode($entry, JSON_THROW_ON_ERROR);
         if (!$data) {
             return;
         }
@@ -95,9 +100,11 @@ class FileQueue implements QueueInterface
         if (!$fp) {
             return;
         }
+
         if ($this->compress) {
             @stream_filter_append($fp, 'zlib.deflate', STREAM_FILTER_WRITE);
         }
+
         @fwrite($fp, $data);
         @fclose($fp);
     }

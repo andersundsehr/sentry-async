@@ -2,24 +2,30 @@
 
 namespace AUS\SentryAsync\DependencyInjection;
 
+use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
 
 class Configuration implements ConfigurationInterface
 {
     /**
-     * @return \Symfony\Component\Config\Definition\Builder\TreeBuilder
+     * @return TreeBuilder
      */
     public function getConfigTreeBuilder()
     {
         $treeBuilder = new TreeBuilder('sentry_async');
-        $rootNode = method_exists(TreeBuilder::class, 'getRootNode') ? $treeBuilder->getRootNode() : $treeBuilder->root('sentry_async');
 
-        $rootNode
+        $sentryAsyncNode = $treeBuilder->getRootNode();
+
+        $sentryAsyncNode
             ->children()
-                ->scalarNode('compress')->defaultTrue()->end()
-                ->scalarNode('limit')->defaultValue(100)->end()
-                ->scalarNode('directory')->defaultValue(sys_get_temp_dir())->end()
+                ->arrayNode('file_queue')
+                    ->children()
+                        ->scalarNode('compress')->defaultTrue()->end()
+                        ->integerNode('limit')->defaultValue(100)->end()
+                        ->scalarNode('directory')->defaultValue(sys_get_temp_dir())->end()
+                    ->end()
+                ->end()
             ->end();
 
         return $treeBuilder;
