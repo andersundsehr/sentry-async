@@ -7,17 +7,10 @@ namespace AUS\SentryAsync\Queue;
 use JsonSerializable;
 use Sentry\EventType;
 
-class Entry implements JsonSerializable
+readonly class Entry implements JsonSerializable
 {
-    private string $dsn;
-    private string $payload;
-    private string $type;
-
-    public function __construct(string $dsn, string $type, string $payload)
+    public function __construct(private string $dsn, private string $type, private bool $isEnvelope, private string $payload)
     {
-        $this->dsn = $dsn;
-        $this->type = $type;
-        $this->payload = $payload;
     }
 
     public function getDsn(): string
@@ -30,16 +23,25 @@ class Entry implements JsonSerializable
         return $this->payload;
     }
 
+    public function isEnvelope(): bool
+    {
+        return $this->type === (string)EventType::transaction();
+    }
+
     public function isTransaction(): bool
     {
         return $this->type === (string)EventType::transaction();
     }
 
+    /**
+     * @return array<string, string|bool>
+     */
     public function jsonSerialize(): array
     {
         return [
             'dsn' => $this->dsn,
             'type' => $this->type,
+            'isEnvelope' => $this->isEnvelope,
             'payload' => $this->payload,
         ];
     }

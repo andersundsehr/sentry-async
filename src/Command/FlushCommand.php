@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Command;
 
+use Jean85\Exception\VersionMissingExceptionInterface;
+use Exception;
 use Http\Discovery\Psr17FactoryDiscovery;
 use Jean85\PrettyVersions;
 use AUS\SentryAsync\Queue\Entry;
@@ -11,6 +13,7 @@ use AUS\SentryAsync\Queue\QueueInterface;
 use Sentry\Client;
 use Sentry\Dsn;
 use Sentry\HttpClient\HttpClientFactory;
+use Http\Client\HttpAsyncClient;
 use Sentry\HttpClient\HttpClientFactoryInterface;
 use Sentry\Options;
 use Symfony\Component\Console\Command\Command;
@@ -20,17 +23,19 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 class FlushCommand extends Command
 {
-    private QueueInterface $queue;
-    private HttpClientFactoryInterface $httpClientFactory;
+    private readonly HttpClientFactoryInterface $httpClientFactory;
+
+    /**
+     * @var array<HttpAsyncClient>
+     */
     private array $httpClientCache = [];
 
     /**
-     * @throws \Jean85\Exception\VersionMissingExceptionInterface
+     * @throws VersionMissingExceptionInterface
      */
-    public function __construct(QueueInterface $queue)
+    public function __construct(private readonly QueueInterface $queue)
     {
         parent::__construct('andersundsehr:sentry-async:flush');
-        $this->queue = $queue;
         $this->httpClientFactory = $this->createHttpClientFactory();
     }
 
@@ -41,7 +46,7 @@ class FlushCommand extends Command
     }
 
     /**
-     * @throws \Jean85\Exception\VersionMissingExceptionInterface
+     * @throws VersionMissingExceptionInterface
      */
     private function createHttpClientFactory(): HttpClientFactory
     {
@@ -56,7 +61,7 @@ class FlushCommand extends Command
         );
     }
 
-    protected function getClient(Entry $entry)
+    private function getClient(Entry $entry): HttpAsyncClient
     {
         $dsn = $entry->getDsn();
         if (isset($this->httpClientCache[$dsn])) {
@@ -69,7 +74,7 @@ class FlushCommand extends Command
     }
 
     /**
-     * @throws \Exception
+     * @throws Exception
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
@@ -80,7 +85,11 @@ class FlushCommand extends Command
 
         while (($entry = $this->queue->pop()) && $i > 0) {
             $dsn = Dsn::createFromString($entry->getDsn());
-            if ($entry->isTransaction()) {
+            if ($entry->isEnvelope()) {
+                $request = $requestFactory->createRequest('POST', $dsn->getEnvelopeApiEndpointUrl())
+                    ->withHeader('Content-Type', 'application/x-sentry-envelope')
+                    ->withBody($streamFactory->createStream($entry->getPayload()));
+            } elseif ($entry->isTransaction()) {
                 $request = $requestFactory->createRequest('POST', $dsn->getEnvelopeApiEndpointUrl())
                     ->withHeader('Content-Type', 'application/x-sentry-envelope')
                     ->withBody($streamFactory->createStream($entry->getPayload()));
