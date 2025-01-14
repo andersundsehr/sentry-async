@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace AUS\SentryAsync\Queue;
 
 use JsonSerializable;
-use Sentry\EventType;
 
 readonly class Entry implements JsonSerializable
 {
@@ -21,16 +20,6 @@ readonly class Entry implements JsonSerializable
     public function getPayload(): string
     {
         return $this->payload;
-    }
-
-    public function isEnvelope(): bool
-    {
-        return $this->type === (string)EventType::transaction();
-    }
-
-    public function isTransaction(): bool
-    {
-        return $this->type === (string)EventType::transaction();
     }
 
     /**

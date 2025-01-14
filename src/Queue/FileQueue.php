@@ -83,7 +83,7 @@ readonly class FileQueue implements QueueInterface
     public function push(Entry $entry): void
     {
         /** @noinspection JsonEncodingApiUsageInspection */
-        $data = @json_encode($entry, JSON_THROW_ON_ERROR);
+        $data = @json_encode($entry);
         if (!$data) {
             return;
         }
