@@ -5,8 +5,6 @@ declare(strict_types=1);
 use PLUS\GrumPHPConfig\RectorSettings;
 use Rector\Config\RectorConfig;
 use Rector\Caching\ValueObject\Storage\FileCacheStorage;
-use Rector\Php81\Rector\ClassConst\FinalizePublicClassConstantRector;
-use Rector\Privatization\Rector\Class_\FinalizeClassesWithoutChildrenRector;
 
 return static function (RectorConfig $rectorConfig): void {
     $rectorConfig->parallel();
@@ -33,8 +31,6 @@ return static function (RectorConfig $rectorConfig): void {
         [
             ...RectorSettings::skip(),
             ...RectorSettings::skipTypo3(),
-            FinalizePublicClassConstantRector::class,
-            FinalizeClassesWithoutChildrenRector::class,
 
             /**
              * rector should not touch these files

@@ -18,10 +18,17 @@
   "homepage": "https://www.andersundsehr.com",
   "require": {
     "ext-fileinfo": "*",
-    "sentry/sentry-symfony": "^4.12.0"
+    "http-interop/http-factory-discovery": "^1.6",
+    "php-http/discovery": "*",
+    "psr/http-client": "^1.0",
+    "psr/http-factory-implementation": "*",
+    "sentry/sentry": "^4.10.0",
+    "sentry/sentry-symfony": "^5.1",
+    "symfony/http-client": "^7.2"
   },
   "require-dev": {
-    "pluswerk/grumphp-config": "^6.1"
+    "pluswerk/grumphp-config": "^7.1.0",
+    "symfony/test-pack": "^1.1"
   },
   "autoload": {
     "psr-4": {

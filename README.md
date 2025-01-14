@@ -3,9 +3,11 @@
 To enable the asynchronous transport configure sentry to use our transport factory.<br>
 The extension is shipped with a default file_queue, which may be configured in *config/packages/sentry.yaml*
 
+The andersundsehr/sentry-async depends on SENTRY_DSN environment variable set.
+
 ```yaml
 sentry:
-  transport_factory: AUS\SentryAsync\Transport\TransportFactory
+  transport: AUS\SentryAsync\Transport\QueueTransport
 
 sentry_async:
   file_queue:
