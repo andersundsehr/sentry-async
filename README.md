@@ -7,7 +7,8 @@ The andersundsehr/sentry-async depends on SENTRY_DSN environment variable set.
 
 ```yaml
 sentry:
-  transport: AUS\SentryAsync\Transport\QueueTransport
+  options:
+    transport: AUS\SentryAsync\Transport\QueueTransport
 
 sentry_async:
   file_queue:
@@ -16,36 +17,12 @@ sentry_async:
     directory: '%kernel.cache_dir%/sentry_async/'
 ```
 
-Indeed, you can use another queue functionality and do things on your own *config/services.yaml*
+Indeed, you can use another queue functionality and do things on your own *config/services.yaml* implementing \AUS\SentryAsync\Queue\QueueInterface
 
 ```yaml
   App\Queue\ExampleQueue:
     public: true
 
-  AUS\SentryAsync\Transport\TransportFactory:
+  AUS\SentryAsync\Transport\QueueTransport:
     $queue: '@App\Queue\ExampleQueue'
-```
-
-Example of an other transport class in *src/Queue/ExampleQueue*
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Queue;
-
-use AUS\SentryAsync\Queue\Entry;
-use AUS\SentryAsync\Queue\QueueInterface;
-
-class ExampleQueue implements QueueInterface
-{
-
-    public function pop(): ?Entry
-    {
-    }
-
-    public function push(Entry $entry): void
-    {
-    }
-}
 ```
