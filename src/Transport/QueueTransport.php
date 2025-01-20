@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Transport;
 
-use AUS\SentryAsync\Queue\Entry;
+use AUS\SentryAsync\Entry\Entry;
+use AUS\SentryAsync\Factory\EntryFactory;
 use AUS\SentryAsync\Queue\QueueInterface;
 use Sentry\Event;
-use Sentry\EventType;
 use Sentry\Options;
 use Sentry\Serializer\PayloadSerializer;
 use Sentry\Transport\Result;
@@ -24,9 +24,9 @@ readonly class QueueTransport implements TransportInterface
 
     public function __construct(
         private QueueInterface $queue,
-        private string $dsn,
+        private readonly EntryFactory $entryFactory
     ) {
-        $this->options = new Options(['dsn' => $this->dsn]);
+        $this->options = new Options(['dsn' => 'https://123@sentry-dummy/1']);
     }
 
     public function send(Event $event): Result
@@ -34,12 +34,7 @@ readonly class QueueTransport implements TransportInterface
         $payloadSerializer = new PayloadSerializer($this->options);
         $serializedPayload = $payloadSerializer->serialize($event);
 
-        $eventType = $event->getType();
-        $isEnvelope = $this->options->isTracingEnabled() ||
-            EventType::transaction() === $eventType ||
-            EventType::checkIn() === $eventType;
-
-        $entry = new Entry((string)$this->options->getDsn(), (string)$event->getType(), $isEnvelope, $serializedPayload);
+        $entry = $this->entryFactory->createEntry($serializedPayload);
         $this->queue->push($entry);
 
         $resultStatus = ResultStatus::createFromHttpStatusCode(self::HTTP_STATUS_ACCEPTED);

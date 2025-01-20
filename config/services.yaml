@@ -1,19 +1,14 @@
-parameters:
-  sentry.dsn: '%env(SENTRY_DSN)%'
-
 services:
   _defaults:
     autowire: true
     autoconfigure: true
     public: false
 
-  AUS\SentryAsync\Queue\:
-    resource: '../src/Queue/*'
+  AUS\SentryAsync\:
+    resource: '../src/*'
 
   AUS\SentryAsync\Transport\QueueTransport:
     public: true
-    arguments:
-      $dsn: '%sentry.dsn%'
 
   AUS\SentryAsync\Command\FlushCommand:
     tags:
