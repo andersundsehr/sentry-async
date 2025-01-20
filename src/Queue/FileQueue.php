@@ -4,15 +4,26 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Queue;
 
-use JsonException;
+use AUS\SentryAsync\Entry\EntryInterface;
+use AUS\SentryAsync\Factory\EntryFactory;
 use Exception;
 use FilesystemIterator;
 use RuntimeException;
 
-readonly class FileQueue implements QueueInterface
+class FileQueue implements QueueInterface
 {
-    public function __construct(private int $limit, private bool $compress, private string $directory)
-    {
+    private ?FilesystemIterator $filesystemIterator = null;
+
+    public function __construct(
+        private readonly int $limit,
+        private readonly bool $compress,
+        private string $directory,
+        private readonly EntryFactory $entryFactory
+    ) {
+        if (!str_ends_with($this->directory, DIRECTORY_SEPARATOR)) {
+            $this->directory .= DIRECTORY_SEPARATOR;
+        }
+
         if (!file_exists($this->directory)) {
             try {
                 if (!mkdir($concurrentDirectory = $this->directory, 0777, true) && !is_dir($concurrentDirectory)) {
@@ -24,81 +35,82 @@ readonly class FileQueue implements QueueInterface
     }
 
     /**
-     * @throws JsonException
+     * @inheritdoc
      */
-    public function pop(): ?Entry
+    public function pop(string &$identifier): ?EntryInterface
     {
-        $file = null;
-        if ($h = opendir($this->directory)) {
-            while (($file = readdir($h)) !== false) {
-                if ($file !== '.' && $file !== '..') {
-                    break;
-                }
-            }
-
-            closedir($h);
+        if (null === $this->filesystemIterator) {
+            $this->filesystemIterator = new FilesystemIterator($this->directory, FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME);
         }
 
-        if ($file) {
-            $absFile = $this->directory . $file;
-            // $content = file_get_contents($absFile);
-            $fp = fopen($absFile, 'rb');
-            if (false === $fp) {
+        do {
+            if (!$this->filesystemIterator->valid()) {
                 return null;
             }
 
-            $mime = mime_content_type($absFile);
-            switch ($mime) {
-                case 'application/json':
-                    break;
-                case 'application/octet-stream':
-                    @stream_filter_append($fp, 'zlib.inflate', STREAM_FILTER_READ);
-                    break;
-                default:
-            }
+            $file = $this->filesystemIterator->current();
+            $this->filesystemIterator->next();
+            assert(is_string($file));
+        } while (!str_ends_with($file, '.entry'));
 
-            $content = stream_get_contents($fp);
-            fclose($fp);
-
-            if (!$content) {
-                return null;
-            }
-
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-            if (!$data) {
-                return null;
-            }
-
-            if (!isset($data['dsn'], $data['type'], $data['payload'])) {
-                return null;
-            }
-
-            unlink($absFile);
-            return new Entry($data['dsn'], $data['type'], $data['isEnvelope'] ?? false, $data['payload']);
+        $fp = fopen($file, 'rb');
+        if (false === $fp) {
+            return null;
         }
 
-        return null;
+        $mime = mime_content_type($file);
+        switch ($mime) {
+            case 'application/json':
+                break;
+            case 'application/octet-stream':
+                @stream_filter_append($fp, 'zlib.inflate', STREAM_FILTER_READ);
+                break;
+            default:
+        }
+
+        $content = stream_get_contents($fp);
+        fclose($fp);
+
+        if (!$content) {
+            return null;
+        }
+
+        $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+        if (!$data) {
+            return null;
+        }
+
+        if (!isset($data['payload'])) {
+            return null;
+        }
+
+        $identifier = basename($file);
+        return $this->entryFactory->createEntry($data['payload']);
     }
 
-    public function push(Entry $entry): void
+    /**
+     * @inheritdoc
+     */
+    public function push(EntryInterface $entry): ?string
     {
-        /** @noinspection JsonEncodingApiUsageInspection */
-        $data = @json_encode($entry);
-        if (!$data) {
-            return;
-        }
-
         if ($this->limit) {
             $fileCount = iterator_count(new FilesystemIterator($this->directory, FilesystemIterator::SKIP_DOTS));
             if ($fileCount > $this->limit) {
-                return;
+                return null;
             }
         }
 
-        $fileName = $this->directory . microtime(true) . md5($data) . '.entry';
+        $fileName = $this->directory . microtime(true) . sha1($entry->getPayload()) . '.entry';
+
+        /** @noinspection JsonEncodingApiUsageInspection */
+        $data = @json_encode($entry);
+        if (!$data) {
+            return null;
+        }
+
         $fp = fopen($fileName, 'wb');
         if (!$fp) {
-            return;
+            return null;
         }
 
         if ($this->compress) {
@@ -107,5 +119,19 @@ readonly class FileQueue implements QueueInterface
 
         @fwrite($fp, $data);
         @fclose($fp);
+        return $fileName;
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function remove(string $identifier): bool
+    {
+        $absFile = $this->directory . $identifier;
+        if (file_exists($absFile)) {
+            return unlink($absFile);
+        }
+
+        return false;
     }
 }
