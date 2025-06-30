@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Transport;
 
-use AUS\SentryAsync\Entry\Entry;
 use AUS\SentryAsync\Factory\EntryFactory;
 use AUS\SentryAsync\Queue\QueueInterface;
 use Sentry\Event;
@@ -24,7 +23,7 @@ readonly class QueueTransport implements TransportInterface
 
     public function __construct(
         private QueueInterface $queue,
-        private readonly EntryFactory $entryFactory
+        private EntryFactory $entryFactory
     ) {
         $this->options = new Options(['dsn' => 'https://123@sentry-dummy/1']);
     }

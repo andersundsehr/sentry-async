@@ -76,7 +76,7 @@ class FileQueue implements QueueInterface
         }
 
         $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-        if (!$data) {
+        if (!$data || !is_array($data)) {
             return null;
         }
 

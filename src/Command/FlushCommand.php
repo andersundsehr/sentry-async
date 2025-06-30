@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace AUS\SentryAsync\Command;
 
 use AUS\SentryAsync\Queue\QueueInterface;
-use Http\Factory\Discovery\HttpFactory;
+use Http\Discovery\Psr17FactoryDiscovery;
+use Http\Discovery\Psr18Client;
 use JsonException;
 use Psr\Http\Client\ClientExceptionInterface;
 use Sentry\ClientInterface;
@@ -13,11 +14,10 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\HttpClient\Psr18Client;
 
 class FlushCommand extends Command
 {
-    public function __construct(private readonly QueueInterface $queue, private readonly ClientInterface $sentryClient)
+    public function __construct(private readonly QueueInterface $queue, private readonly ?ClientInterface $sentryClient)
     {
         parent::__construct('andersundsehr:sentry-async:flush');
     }
@@ -35,11 +35,21 @@ class FlushCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if (null === $this->sentryClient) {
+            $output->writeln('No Sentry client configured');
+            return Command::FAILURE;
+        }
+
         $client = new Psr18Client();
-        $requestFactory = HttpFactory::requestFactory();
-        $streamFactory = HttpFactory::streamFactory();
-        $i = (int)$input->getOption('limit-items');
-        $microseconds = (int)$input->getOption('microseconds-sleep');
+        $streamFactory = Psr17FactoryDiscovery::findStreamFactory();
+
+        /** @var int|string $limitItems */
+        $limitItems = $input->getOption('limit-items');
+        $limitItems = (int)$limitItems;
+
+        /** @var int|string $microseconds */
+        $microseconds = $input->getOption('microseconds-sleep');
+        $microseconds = (int)$microseconds;
 
         $dsn = $this->sentryClient->getOptions()->getDsn();
         if (null === $dsn) {
@@ -50,11 +60,11 @@ class FlushCommand extends Command
         $success = Command::SUCCESS;
 
         $lastIdentfier = '';
-        while ($i > 0 && $entry = $this->queue->pop($lastIdentfier)) {
+        while ($limitItems > 0 && $entry = $this->queue->pop($lastIdentfier)) {
             $payload = $entry->getPayload();
             $payload = str_replace('https:\/\/123@sentry-dummy\/1', (string)$dsn, $payload);
 
-            $request = $requestFactory->createRequest('POST', $dsn->getEnvelopeApiEndpointUrl())
+            $request = $client->createRequest('POST', $dsn->getEnvelopeApiEndpointUrl())
                 ->withHeader('Content-Type', 'application/x-sentry-envelope')
                 ->withBody($streamFactory->createStream($payload));
 
@@ -72,7 +82,7 @@ class FlushCommand extends Command
                 usleep($microseconds);
             }
 
-            $i--;
+            $limitItems--;
         }
 
         return $success;
