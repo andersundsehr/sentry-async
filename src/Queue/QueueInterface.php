@@ -29,4 +29,6 @@ interface QueueInterface
      * Returns true on success or false, if the identifier was not found or could not be removed.
      */
     public function remove(string $identifier): bool;
+
+    public function count(): ?int;
 }

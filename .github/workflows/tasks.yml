@@ -1,0 +1,29 @@
+name: Tasks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-php:
+    name: "linting:    php: ${{ matrix.php }} Symfony: ${{ matrix.symfony }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [ '8.2', '8.3', '8.4' ]
+        symfony: [ '6.4', '7.3' ]
+    steps:
+      - name: Setup PHP with PECL extension
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: ${{ runner.os }}-${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.php }}-composer-
+      - run: composer require symfony/http-kernel="^${{ matrix.symfony }}" --dev --ignore-platform-req=php+
+      - run: ./vendor/bin/grumphp run --ansi
