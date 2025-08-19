@@ -10,6 +10,9 @@ use Exception;
 use FilesystemIterator;
 use RuntimeException;
 
+use function is_string;
+use function iterator_count;
+
 class FileQueue implements QueueInterface
 {
     private ?FilesystemIterator $filesystemIterator = null;
@@ -32,6 +35,12 @@ class FileQueue implements QueueInterface
             } catch (Exception) {
             }
         }
+    }
+
+    public function count(): int
+    {
+        $iterator = new FilesystemIterator($this->directory, FilesystemIterator::SKIP_DOTS);
+        return iterator_count($iterator);
     }
 
     /**
@@ -81,6 +90,10 @@ class FileQueue implements QueueInterface
         }
 
         if (!isset($data['payload'])) {
+            return null;
+        }
+
+        if (!is_string($data['payload'])) {
             return null;
         }
 
