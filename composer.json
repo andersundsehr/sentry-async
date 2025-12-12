@@ -17,7 +17,7 @@
   ],
   "homepage": "https://www.andersundsehr.com",
   "require": {
-    "php": "~8.2.0 || ~8.3.0 || ~8.4.0",
+    "php": "~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0",
     "ext-fileinfo": "*",
     "guzzlehttp/guzzle": "^7.9.3",
     "http-interop/http-factory-guzzle": "^1.2.0",
