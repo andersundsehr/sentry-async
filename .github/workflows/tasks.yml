@@ -33,4 +33,14 @@ jobs:
       - run: composer require symfony/http-kernel="^${{ matrix.symfony }}" --dev
       - run: composer check-platform-reqs
       - run: composer audit --abandoned=report
-      - run: ./vendor/bin/grumphp run --ansi
+      - name: Run the complete static checks
+        shell: bash
+        run: |
+          set -o pipefail
+          ./vendor/bin/grumphp run --no-ansi 2>&1 | tee /tmp/php85-grumphp.log
+      - name: Report failed checks
+        if: failure()
+        run: |
+          if [ -f /tmp/php85-grumphp.log ]; then
+            php -r '$s=file_get_contents("/tmp/php85-grumphp.log"); echo "::error::".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], substr($s, -25000))."\n";'
+          fi
