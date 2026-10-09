@@ -42,5 +42,5 @@ jobs:
         if: failure()
         run: |
           if [ -f /tmp/php85-grumphp.log ]; then
-            php -r '$s=file_get_contents("/tmp/php85-grumphp.log"); echo "::error::".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], substr($s, -25000))."\n";'
+            php -r '$s=file_get_contents("/tmp/php85-grumphp.log"); echo "::error::".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], substr($s, -5000))."\n";'
           fi
