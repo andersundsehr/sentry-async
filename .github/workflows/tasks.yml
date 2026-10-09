@@ -30,5 +30,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.php }}-composer-
-      - run: composer require symfony/http-kernel="^${{ matrix.symfony }}" --dev --ignore-platform-req=php+
+      - run: composer require symfony/http-kernel="^${{ matrix.symfony }}" --dev
+      - run: composer check-platform-reqs
+      - run: composer audit --abandoned=report
       - run: ./vendor/bin/grumphp run --ansi
