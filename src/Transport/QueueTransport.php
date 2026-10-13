@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Transport;
 
+use Throwable;
 use AUS\SentryAsync\Factory\EntryFactory;
 use AUS\SentryAsync\Queue\QueueInterface;
 use Sentry\Event;
@@ -15,8 +16,6 @@ use Sentry\Transport\TransportInterface;
 
 readonly class QueueTransport implements TransportInterface
 {
-    private const HTTP_STATUS_ACCEPTED = 201;
-
     private const HTTP_STATUS_NO_CONTENT = 204;
 
     private Options $options;
@@ -30,14 +29,16 @@ readonly class QueueTransport implements TransportInterface
 
     public function send(Event $event): Result
     {
-        $payloadSerializer = new PayloadSerializer($this->options);
-        $serializedPayload = $payloadSerializer->serialize($event);
+        try {
+            $payloadSerializer = new PayloadSerializer($this->options);
+            $entry = $this->entryFactory->createEntry($payloadSerializer->serialize($event));
+            $identifier = $this->queue->push($entry);
+        } catch (Throwable) {
+            // Reporting an error must not replace the application's original failure.
+            return new Result(ResultStatus::failed(), $event);
+        }
 
-        $entry = $this->entryFactory->createEntry($serializedPayload);
-        $this->queue->push($entry);
-
-        $resultStatus = ResultStatus::createFromHttpStatusCode(self::HTTP_STATUS_ACCEPTED);
-        return new Result($resultStatus, $event);
+        return new Result($identifier === null ? ResultStatus::failed() : ResultStatus::success(), $event);
     }
 
     public function close(?int $timeout = null): Result

@@ -4,4 +4,5 @@ includes:
 
 parameters:
   level: 9
+  treatPhpDocTypesAsCertain: false
   reportUnmatchedIgnoredErrors: false

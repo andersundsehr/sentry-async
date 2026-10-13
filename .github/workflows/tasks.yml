@@ -5,14 +5,14 @@ on:
   pull_request:
 
 jobs:
-  lint-php:
-    name: "linting:    php: ${{ matrix.php }} Symfony: ${{ matrix.symfony }}"
+  tests:
+    name: "tests: PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php: [ '8.2', '8.3', '8.4', '8.5' ]
-        symfony: [ '6.4', '7.3', '8.0' ]
+        symfony: [ '6.4', '7.4', '8.0' ]
         exclude:
           - php: '8.2'
             symfony: '8.0'
@@ -30,5 +30,25 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.php }}-composer-
-      - run: composer require symfony/http-kernel="^${{ matrix.symfony }}" --dev --ignore-platform-req=php+
-      - run: ./vendor/bin/grumphp run --ansi
+      # GrumPHP's development dependencies do not support Symfony 8 yet.
+      # Linting runs separately; keep the compatibility matrix free of that restriction.
+      - run: composer remove --dev pluswerk/grumphp-config --no-update --no-interaction
+      - run: composer require symfony/config="^${{ matrix.symfony }}" symfony/console="^${{ matrix.symfony }}" symfony/dependency-injection="^${{ matrix.symfony }}" symfony/http-kernel="^${{ matrix.symfony }}" symfony/yaml="^${{ matrix.symfony }}" --no-interaction
+      - run: ./vendor/bin/phpunit
+
+  lint-php:
+    name: "linting: PHP 8.4 / Symfony 7.4"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: ${{ runner.os }}-8.4-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-8.4-composer-
+      - run: composer require symfony/config="^7.4" symfony/console="^7.4" symfony/dependency-injection="^7.4" symfony/http-kernel="^7.4" symfony/yaml="^7.4" --no-interaction
+      - run: ./vendor/bin/grumphp run --ansi --no-interaction
