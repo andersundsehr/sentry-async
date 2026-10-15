@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Queue;
 
+use InvalidArgumentException;
 use AUS\SentryAsync\Entry\EntryInterface;
 use JsonException;
 
 interface QueueInterface
 {
     /**
-     * Dequeue the entry or return null if the queue is empty.
-     * If a pop occured, $identifier will hol the popped identifier.
+     * Return the next entry without deleting it, or null when iteration is exhausted.
+     * Set $identifier to the entry identifier. Only remove() acknowledges delivery.
+     * Advance past malformed entries before throwing so flushing can continue.
      *
+     * @throws InvalidArgumentException
      * @throws JsonException
      */
     public function pop(string &$identifier): ?EntryInterface;
@@ -20,6 +23,7 @@ interface QueueInterface
     /**
      * Enqueue the entry and return an identifier for the entry or null if an error occured.
      *
+     * @throws InvalidArgumentException
      * @throws JsonException
      */
     public function push(EntryInterface $entry): ?string;

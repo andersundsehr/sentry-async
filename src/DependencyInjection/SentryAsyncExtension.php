@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\DependencyInjection;
 
-use AUS\SentryAsync\Entry\Entry;
 use AUS\SentryAsync\Factory\EntryFactory;
 use Exception;
 use Symfony\Component\DependencyInjection\Loader\YamlFileLoader;
