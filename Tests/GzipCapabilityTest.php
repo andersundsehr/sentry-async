@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Tests;
 
+use SplFileInfo;
+use FilesystemIterator;
+use RuntimeException;
+use ArrayObject;
+use Throwable;
 use AUS\SentryAsync\Command\FlushCommand;
 use AUS\SentryAsync\Entry\Entry;
 use AUS\SentryAsync\Factory\EntryFactory;
@@ -35,13 +40,15 @@ final class GzipCapabilityTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (new \FilesystemIterator($this->directory) as $file) {
+        foreach (new FilesystemIterator($this->directory) as $file) {
+            self::assertInstanceOf(SplFileInfo::class, $file);
             if ($file->isDir()) {
                 rmdir($file->getPathname());
             } else {
                 unlink($file->getPathname());
             }
         }
+
         rmdir($this->directory);
     }
 
@@ -51,7 +58,7 @@ final class GzipCapabilityTest extends TestCase
         $this->cache(true);
         [$tester, $requests] = $this->runFlush([new Response(200)], false);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[0]);
+        $this->assertPlain($this->requestAt($requests, 0));
         self::assertStringContainsString('Gzip unavailable on sender', $tester->getDisplay());
     }
 
@@ -60,15 +67,16 @@ final class GzipCapabilityTest extends TestCase
     {
         [$tester, $requests] = $this->runFlush([new Response(200), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $probe = gzdecode((string)$requests[0]->getBody());
+        $probe = gzdecode((string)$this->requestAt($requests, 0)->getBody());
+        self::assertIsString($probe);
         self::assertSame(['dsn' => self::DSN], json_decode(trim($probe), true, 512, JSON_THROW_ON_ERROR));
         self::assertSame(1, substr_count($probe, "\n"));
-        self::assertSame('gzip', $requests[1]->getHeaderLine('Content-Encoding'));
+        self::assertSame('gzip', $this->requestAt($requests, 1)->getHeaderLine('Content-Encoding'));
         self::assertTrue($this->readCache()['supported']);
         self::assertStringNotContainsString('test-public-key', $this->cacheFile());
         [$next, $nextRequests] = $this->runFlush([new Response(200)]);
         self::assertSame(Command::SUCCESS, $next->getStatusCode());
-        self::assertSame('gzip', $nextRequests[0]->getHeaderLine('Content-Encoding'));
+        self::assertSame('gzip', $this->requestAt($nextRequests, 0)->getHeaderLine('Content-Encoding'));
         self::assertStringContainsString('Using cached gzip capability', $next->getDisplay());
     }
 
@@ -77,10 +85,10 @@ final class GzipCapabilityTest extends TestCase
     {
         [$tester, $requests] = $this->runFlush([new Response(415), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
+        $this->assertPlain($this->requestAt($requests, 1));
         self::assertFalse($this->readCache()['supported']);
         [, $nextRequests] = $this->runFlush([new Response(200)]);
-        $this->assertPlain($nextRequests[0]);
+        $this->assertPlain($this->requestAt($nextRequests, 0));
     }
 
     #[Test]
@@ -93,6 +101,7 @@ final class GzipCapabilityTest extends TestCase
         self::assertTrue($this->readCache()['supported']);
     }
 
+    /** @return list<array{string}> */
     public static function invalidCache(): array
     {
         return [
@@ -109,9 +118,13 @@ final class GzipCapabilityTest extends TestCase
         $otherDsn = 'https://different-key@sentry.example/19';
         [$tester, $requests] = $this->runFlush([new Response(415), new Response(200)], true, 0, $otherDsn);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
+        $this->assertPlain($this->requestAt($requests, 1));
         self::assertTrue($this->readCache()['supported']);
-        self::assertFalse(json_decode(file_get_contents($this->cacheFile($otherDsn)), true)['supported']);
+        $otherCacheContents = file_get_contents($this->cacheFile($otherDsn));
+        self::assertIsString($otherCacheContents);
+        $otherCache = json_decode($otherCacheContents, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($otherCache);
+        self::assertFalse($otherCache['supported'] ?? null);
     }
 
     #[Test]
@@ -120,10 +133,11 @@ final class GzipCapabilityTest extends TestCase
     {
         [$tester, $requests] = $this->runFlush([new Response($code), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
+        $this->assertPlain($this->requestAt($requests, 1));
         self::assertFileDoesNotExist($this->cacheFile());
     }
 
+    /** @return list<array{int}> */
     public static function transientProbeFailures(): array
     {
         return [[401], [403], [408], [425], [500], [503], [302]];
@@ -132,7 +146,7 @@ final class GzipCapabilityTest extends TestCase
     #[Test]
     public function probeTransportFailureUsesPlainWithoutCaching(): void
     {
-        $exception = new class('Connection failed') extends \RuntimeException implements NetworkExceptionInterface {
+        $exception = new class ('Connection failed') extends RuntimeException implements NetworkExceptionInterface {
             public function getRequest(): RequestInterface
             {
                 return new Request('POST', 'https://sentry.example');
@@ -140,7 +154,7 @@ final class GzipCapabilityTest extends TestCase
         };
         [$tester, $requests] = $this->runFlush([$exception, new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
+        $this->assertPlain($this->requestAt($requests, 1));
         self::assertFileDoesNotExist($this->cacheFile());
     }
 
@@ -158,7 +172,7 @@ final class GzipCapabilityTest extends TestCase
     {
         [$tester, $requests] = $this->runFlush([new Response(200)], true, 1);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[0]);
+        $this->assertPlain($this->requestAt($requests, 0));
         self::assertFileDoesNotExist($this->cacheFile());
     }
 
@@ -167,7 +181,7 @@ final class GzipCapabilityTest extends TestCase
     {
         [$tester, $requests] = $this->runFlush([new Response(200), new Response(200)], true, 2);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
+        $this->assertPlain($this->requestAt($requests, 1));
         self::assertTrue($this->readCache()['supported']);
     }
 
@@ -178,11 +192,14 @@ final class GzipCapabilityTest extends TestCase
         $this->cache(true);
         [$tester, $requests] = $this->runFlush([new Response($code), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
-        self::assertSame(gzdecode((string)$requests[0]->getBody()), (string)$requests[1]->getBody());
+        $gzipRequest = $this->requestAt($requests, 0);
+        $plainRequest = $this->requestAt($requests, 1);
+        $this->assertPlain($plainRequest);
+        self::assertSame(gzdecode((string)$gzipRequest->getBody()), (string)$plainRequest->getBody());
         self::assertFalse($this->readCache()['supported']);
     }
 
+    /** @return list<array{int}> */
     public static function gzipRejections(): array
     {
         return [[400], [415]];
@@ -194,10 +211,13 @@ final class GzipCapabilityTest extends TestCase
         $this->cache(true);
         [$tester, $requests] = $this->runFlush([new Response(415), new Response(413), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        $this->assertPlain($requests[1]);
-        $this->assertPlain($requests[2]);
-        $parts = explode("\n", (string)$requests[2]->getBody());
-        self::assertSame([['op' => 'db']], json_decode($parts[2], true)['spans']);
+        $this->assertPlain($this->requestAt($requests, 1));
+        $retryRequest = $this->requestAt($requests, 2);
+        $this->assertPlain($retryRequest);
+        $parts = explode("\n", (string)$retryRequest->getBody());
+        $transaction = json_decode($parts[2], true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($transaction);
+        self::assertSame([['op' => 'db']], $transaction['spans'] ?? null);
     }
 
     #[Test]
@@ -207,7 +227,7 @@ final class GzipCapabilityTest extends TestCase
         mkdir($this->cacheFile());
         [$tester, $requests] = $this->runFlush([new Response(200), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        self::assertSame('gzip', $requests[1]->getHeaderLine('Content-Encoding'));
+        self::assertSame('gzip', $this->requestAt($requests, 1)->getHeaderLine('Content-Encoding'));
         self::assertStringContainsString('Could not replace gzip capability cache', $tester->getDisplay());
         self::assertSame([], glob($this->directory . '*.tmp'));
         self::assertSame([], glob($this->directory . '.*.tmp'));
@@ -244,12 +264,12 @@ final class GzipCapabilityTest extends TestCase
         [$tester, $requests] = $this->runFlush([new Response(200), new Response(200)]);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
         self::assertSame(0, $this->queue()->count());
-        $bodies = array_map(static fn (RequestInterface $request): string =>
-            gzdecode((string)$request->getBody()), $requests->getArrayCopy());
+        $bodies = array_map($this->decodeGzipRequest(...), $requests->getArrayCopy());
         self::assertCount(1, array_filter($bodies, static fn (string $body): bool =>
             str_contains($body, 'stored event')));
     }
 
+    /** @return list<array{bool}> */
     public static function queueCompression(): array
     {
         return [[false], [true]];
@@ -267,6 +287,7 @@ final class GzipCapabilityTest extends TestCase
         self::assertSame(1, $this->queue()->count());
     }
 
+    /** @return list<array{string}> */
     public static function corruptEntries(): array
     {
         return [[''], ['{invalid'], ['{}'], ['{"payload":false}'],
@@ -278,6 +299,7 @@ final class GzipCapabilityTest extends TestCase
     public function overlappingFlushDoesNotSendOrRemoveEntries(): void
     {
         $lock = fopen($this->directory . '.flush.lock', 'c');
+        self::assertIsResource($lock);
         self::assertTrue(flock($lock, LOCK_EX | LOCK_NB));
         try {
             [$tester] = $this->runFlush([]);
@@ -302,9 +324,16 @@ final class GzipCapabilityTest extends TestCase
         ], JSON_THROW_ON_ERROR));
     }
 
+    /** @return array{supported: bool, checked_at: int} */
     private function readCache(): array
     {
-        return json_decode(file_get_contents($this->cacheFile()), true, 512, JSON_THROW_ON_ERROR);
+        $contents = file_get_contents($this->cacheFile());
+        self::assertIsString($contents);
+        $cache = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($cache);
+        self::assertIsBool($cache['supported'] ?? null);
+        self::assertIsInt($cache['checked_at'] ?? null);
+        return $cache;
     }
 
     private function queue(int $limit = 60): FileQueue
@@ -319,6 +348,29 @@ final class GzipCapabilityTest extends TestCase
         self::assertIsArray(json_decode(explode("\n", (string)$request->getBody())[0], true));
     }
 
+    private function decodeGzipRequest(RequestInterface $request): string
+    {
+        $payload = gzdecode((string)$request->getBody());
+        self::assertIsString($payload);
+
+        return $payload;
+    }
+
+    /** @param ArrayObject<int, RequestInterface> $requests */
+    private function requestAt(ArrayObject $requests, int $index): RequestInterface
+    {
+        $request = $requests[$index] ?? null;
+        if (!$request instanceof RequestInterface) {
+            throw new RuntimeException('Expected HTTP request at index ' . $index . '.');
+        }
+
+        return $request;
+    }
+
+    /**
+     * @param list<Response|Throwable> $responses
+     * @return array{CommandTester, ArrayObject<int, RequestInterface>}
+     */
     private function runFlush(
         array $responses,
         bool $supportsGzip = true,
@@ -328,22 +380,24 @@ final class GzipCapabilityTest extends TestCase
         $queue = $this->queue();
         $queue->push(new Entry(
             "{}\n{\"type\":\"transaction\"}\n"
-            . "{\"spans\":[{\"op\":\"middleware.in\"},{\"op\":\"db\"}]}"
+            . '{"spans":[{"op":"middleware.in"},{"op":"db"}]}'
         ));
-        $requests = new \ArrayObject();
+        /** @var ArrayObject<int, RequestInterface> $requests */
+        $requests = new ArrayObject();
         $http = $this->createMock(ClientInterface::class);
         $http->expects(self::exactly(count($responses)))->method('sendRequest')->willReturnCallback(
             static function (RequestInterface $request) use ($requests, &$responses) {
                 $requests[] = $request;
                 $response = array_shift($responses);
-                if ($response instanceof \Throwable) {
+                if ($response instanceof Throwable) {
                     throw $response;
                 }
+
                 return $response;
             }
         );
         $client = ClientBuilder::create(['dsn' => $dsn, 'default_integrations' => false])->getClient();
-        $command = new class(
+        $command = new class (
             $queue,
             $client,
             new Psr18Client($http),
@@ -381,6 +435,7 @@ final class GzipCapabilityTest extends TestCase
                 if (++$this->compressionCalls === $this->failCompressionAt) {
                     return false;
                 }
+
                 return parent::compressPayload($payload);
             }
         };

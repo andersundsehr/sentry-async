@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Tests;
 
+use ReflectionProperty;
 use AUS\SentryAsync\Command\FlushCommand;
 use AUS\SentryAsync\Entry\Entry;
 use AUS\SentryAsync\Queue\FileQueue;
@@ -23,6 +24,7 @@ use Symfony\Component\Yaml\Yaml;
 final class SymfonyKernelTest extends TestCase
 {
     private string $directory;
+
     private SentryAsyncKernel $kernel;
 
     protected function setUp(): void
@@ -48,9 +50,11 @@ final class SymfonyKernelTest extends TestCase
         if ($limit !== null) {
             $queueConfiguration['limit'] = $limit;
         }
+
         if ($compress !== null) {
             $queueConfiguration['compress'] = $compress;
         }
+
         $this->writeConfiguration($queueConfiguration);
 
         $this->kernel->boot();
@@ -74,18 +78,21 @@ final class SymfonyKernelTest extends TestCase
             $stored = gzinflate($stored);
             self::assertIsString($stored);
         }
+
         $decoded = json_decode($stored, true, 512, JSON_THROW_ON_ERROR);
-        self::assertSame($entry->getPayload(), $decoded['payload']);
+        self::assertIsArray($decoded);
+        self::assertSame($entry->getPayload(), $decoded['payload'] ?? null);
 
         for ($index = 1; $index < ($limit ?? 100); $index++) {
             self::assertNotNull($queue->push(new Entry('capacity check')));
         }
+
         self::assertNull($queue->push(new Entry('over capacity')));
         self::assertSame($limit ?? 100, $queue->count());
 
         $command = $container->get('test.flush_command');
         self::assertInstanceOf(FlushCommand::class, $command);
-        self::assertSame($queue, (new \ReflectionProperty($command, 'queue'))->getValue($command));
+        self::assertSame($queue, (new ReflectionProperty($command, 'queue'))->getValue($command));
     }
 
     /**

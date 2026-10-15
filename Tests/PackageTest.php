@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Tests;
 
+use SplFileInfo;
+use FilesystemIterator;
+use RuntimeException;
+use InvalidArgumentException;
+use stdClass;
+use ReflectionClass;
+use Composer\Autoload\ClassLoader;
+use AUS\SentryAsync\Entry\EntryInterface;
+use AUS\SentryAsync\Command\FlushCommand;
+use ReflectionProperty;
 use AUS\SentryAsync\DependencyInjection\Configuration;
 use AUS\SentryAsync\DependencyInjection\SentryAsyncExtension;
 use AUS\SentryAsync\Entry\Entry;
@@ -31,9 +41,11 @@ final class PackageTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (new \FilesystemIterator($this->directory) as $file) {
+        foreach (new FilesystemIterator($this->directory) as $file) {
+            self::assertInstanceOf(SplFileInfo::class, $file);
             unlink($file->getPathname());
         }
+
         rmdir($this->directory);
     }
 
@@ -53,6 +65,7 @@ final class PackageTest extends TestCase
         self::assertSame($payload, $queue->pop($identifier)?->getPayload());
     }
 
+    /** @return list<array{bool}> */
     public static function compressionModes(): array
     {
         return [[false], [true]];
@@ -90,6 +103,7 @@ final class PackageTest extends TestCase
         for ($i = 0; $i < 10; $i++) {
             $identifiers[] = $queue->push(new Entry('same payload'));
         }
+
         self::assertCount(10, array_unique($identifiers));
         self::assertSame(10, $queue->count());
     }
@@ -107,7 +121,7 @@ final class PackageTest extends TestCase
     public function storageFailureDoesNotCrashApplication(): void
     {
         $queue = $this->createMock(QueueInterface::class);
-        $queue->expects(self::once())->method('push')->willThrowException(new \RuntimeException('disk failed'));
+        $queue->expects(self::once())->method('push')->willThrowException(new RuntimeException('disk failed'));
         $transport = new QueueTransport($queue, new EntryFactory(Entry::class));
         self::assertSame(ResultStatus::failed(), $transport->send(Event::createEvent())->getStatus());
     }
@@ -128,8 +142,8 @@ final class PackageTest extends TestCase
     #[Test]
     public function invalidEntryClassIsRejectedDuringConfiguration(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-        new EntryFactory(\stdClass::class);
+        $this->expectException(InvalidArgumentException::class);
+        new EntryFactory(stdClass::class);
     }
 
     #[Test]
@@ -179,8 +193,10 @@ final class PackageTest extends TestCase
         if (!function_exists('proc_open')) {
             self::markTestSkipped('proc_open is required for the concurrent producer test');
         }
-        $autoload = dirname((new \ReflectionClass(\Composer\Autoload\ClassLoader::class))->getFileName(), 2)
-            . '/autoload.php';
+
+        $classLoaderFile = (new ReflectionClass(ClassLoader::class))->getFileName();
+        self::assertIsString($classLoaderFile);
+        $autoload = dirname($classLoaderFile, 2) . '/autoload.php';
         $processes = [];
         for ($i = 0; $i < 4; $i++) {
             $pipes = [];
@@ -193,20 +209,23 @@ final class PackageTest extends TestCase
             fclose($pipes[0]);
             $processes[] = [$process, $pipes];
         }
+
         foreach ($processes as [$process, $pipes]) {
             $output = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
             fclose($pipes[1]);
             fclose($pipes[2]);
             self::assertSame(0, proc_close($process), $output);
         }
+
         $queue = $this->queue();
         self::assertSame(10, $queue->count());
         $identifier = '';
         $count = 0;
-        while (($entry = $queue->pop($identifier)) !== null) {
+        while (($entry = $queue->pop($identifier)) instanceof EntryInterface) {
             self::assertSame('concurrent event', $entry->getPayload());
             $count++;
         }
+
         self::assertSame(10, $count);
         self::assertSame([], glob($this->directory . '/*.tmp'));
     }
@@ -218,14 +237,14 @@ final class PackageTest extends TestCase
         (new SentryAsyncExtension())->load([['file_queue' => ['directory' => $this->directory]]], $container);
         $container->register('custom.queue')->setSynthetic(true)->setPublic(true);
         $container->setAlias(QueueInterface::class, 'custom.queue');
-        $container->getDefinition(\AUS\SentryAsync\Command\FlushCommand::class)->setPublic(true);
+        $container->getDefinition(FlushCommand::class)->setPublic(true);
         $container->compile();
         $queue = $this->createMock(QueueInterface::class);
         $queue->expects(self::once())->method('push')->willReturn('custom-id');
         $container->set('custom.queue', $queue);
         $transport = $container->get(QueueTransport::class);
         self::assertSame(ResultStatus::success(), $transport->send(Event::createEvent())->getStatus());
-        $command = $container->get(\AUS\SentryAsync\Command\FlushCommand::class);
-        self::assertSame($queue, (new \ReflectionProperty($command, 'queue'))->getValue($command));
+        $command = $container->get(FlushCommand::class);
+        self::assertSame($queue, (new ReflectionProperty($command, 'queue'))->getValue($command));
     }
 }

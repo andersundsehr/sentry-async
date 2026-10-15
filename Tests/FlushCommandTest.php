@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace AUS\SentryAsync\Tests;
 
+use RuntimeException;
+use GuzzleHttp\Psr7\Request;
+use JsonException;
+use ReflectionMethod;
+use stdClass;
+use Psr\Http\Message\StreamInterface;
+use ArrayObject;
 use AUS\SentryAsync\Command\FlushCommand;
 use AUS\SentryAsync\Entry\Entry;
 use AUS\SentryAsync\Queue\QueueInterface;
@@ -35,12 +42,16 @@ final class FlushCommandTest extends TestCase
             ) . "\n" . $attachment;
         $payload = '{"dsn":"https:\/\/123@sentry-dummy\/1","event_id":"id"}' . "\n" . $items;
         [$tester, $requests] = $this->executeWithResponses($payload, [new Response(200)]);
+        $request = $requests[0] ?? null;
+        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-        self::assertSame('gzip', $requests[0]->getHeaderLine('Content-Encoding'));
-        self::assertSame('application/x-sentry-envelope', $requests[0]->getHeaderLine('Content-Type'));
-        self::assertSame('https://sentry.example/api/19/envelope/', (string)$requests[0]->getUri());
-        [$header, $actualItems] = explode("\n", gzdecode((string)$requests[0]->getBody()), 2);
-        self::assertSame(self::DSN, json_decode($header, true, 512, JSON_THROW_ON_ERROR)['dsn']);
+        self::assertSame('gzip', $request->getHeaderLine('Content-Encoding'));
+        self::assertSame('application/x-sentry-envelope', $request->getHeaderLine('Content-Type'));
+        self::assertSame('https://sentry.example/api/19/envelope/', (string)$request->getUri());
+        [$header, $actualItems] = explode("\n", $this->decodeGzipRequest($request), 2);
+        $decodedHeader = json_decode($header, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decodedHeader);
+        self::assertSame(self::DSN, $decodedHeader['dsn'] ?? null);
         self::assertSame($items, $actualItems);
         self::assertStringContainsString('accepted (HTTP 200)', $tester->getDisplay());
         self::assertStringContainsString('gzip=', $tester->getDisplay());
@@ -68,15 +79,21 @@ final class FlushCommandTest extends TestCase
             JSON_THROW_ON_ERROR
         ) . "\n" . $body . $suffix;
         [$tester, $requests] = $this->executeWithResponses($payload, [new Response(413), new Response(200)]);
+        $request = $requests[1] ?? null;
+        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
         self::assertCount(2, $requests);
-        $parts = explode("\n", gzdecode((string)$requests[1]->getBody()), 3);
-        $length = json_decode($parts[1], true, 512, JSON_THROW_ON_ERROR)['length'];
-        $transaction = json_decode(substr($parts[2], 0, $length), true, 512, JSON_THROW_ON_ERROR);
-        self::assertSame([['op' => 'db', 'description' => 'SELECT 1']], $transaction['spans']);
-        self::assertSame('checkout', $transaction['transaction']);
-        self::assertSame(['trace' => ['trace_id' => 'trace']], $transaction['contexts']);
-        self::assertSame($suffix, substr($parts[2], $length));
+        [, $itemHeader, $body] = explode("\n", $this->decodeGzipRequest($request), 3);
+        $decodedItemHeader = json_decode($itemHeader, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decodedItemHeader);
+        self::assertIsInt($decodedItemHeader['length'] ?? null);
+        $length = $decodedItemHeader['length'];
+        $transaction = json_decode(substr($body, 0, $length), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($transaction);
+        self::assertSame([['op' => 'db', 'description' => 'SELECT 1']], $transaction['spans'] ?? null);
+        self::assertSame('checkout', $transaction['transaction'] ?? null);
+        self::assertSame(['trace' => ['trace_id' => 'trace']], $transaction['contexts'] ?? null);
+        self::assertSame($suffix, substr($body, $length));
         self::assertStringContainsString('retrying with fewer spans', $tester->getDisplay());
     }
 
@@ -135,6 +152,9 @@ final class FlushCommandTest extends TestCase
         self::assertLessThan(5500, strlen($display));
     }
 
+    /**
+     * @return list<array<int|string>>
+     */
     public static function httpFailures(): array
     {
         return [
@@ -149,24 +169,25 @@ final class FlushCommandTest extends TestCase
         $queue = $this->createMock(QueueInterface::class);
         $queue->method('count')->willReturn(2);
         $entries = [new Entry($this->transactionPayload()), new Entry($this->transactionPayload()), null];
-        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries) {
+        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries): ?Entry {
             $identifier = 'test.entry';
             return array_shift($entries);
         });
         $queue->expects(self::once())->method('remove')->willReturn(true);
         $calls = 0;
         $http = $this->createMock(HttpClientInterface::class);
-        $exception = new class extends \RuntimeException implements NetworkExceptionInterface {
+        $exception = new class extends RuntimeException implements NetworkExceptionInterface {
             public function getRequest(): RequestInterface
             {
-                return new \GuzzleHttp\Psr7\Request('POST', 'https://sentry.example');
+                return new Request('POST', 'https://sentry.example');
             }
         };
         $http->expects(self::exactly(3))->method('sendRequest')->willReturnCallback(
-            static function () use (&$calls, $exception) {
+            static function () use (&$calls, $exception): Response {
                 if ($calls++ === 1) {
                     throw $exception;
                 }
+
                 return new Response(200);
             }
         );
@@ -188,8 +209,9 @@ final class FlushCommandTest extends TestCase
             $popCount++;
             $identifier = 'test.entry';
             if ($priorError && $popCount === 1) {
-                throw new \JsonException('Malformed previous queue entry');
+                throw new JsonException('Malformed previous queue entry');
             }
+
             return new Entry($this->transactionPayload());
         });
         $queue->expects(self::never())->method('remove');
@@ -204,6 +226,9 @@ final class FlushCommandTest extends TestCase
         self::assertStringContainsString('rate limited; queue retained for next flush', $tester->getDisplay());
     }
 
+    /**
+     * @return list<array<bool>>
+     */
     public static function priorFlushErrors(): array
     {
         return [[false], [true]];
@@ -220,6 +245,9 @@ final class FlushCommandTest extends TestCase
         self::assertSame(Command::INVALID, $tester->getStatusCode());
     }
 
+    /**
+     * @return list<array<string>>
+     */
     public static function invalidOptions(): array
     {
         return [
@@ -242,7 +270,7 @@ final class FlushCommandTest extends TestCase
     public function pacingStartsImmediatelyAndSpacesSubsequentRequests(): void
     {
         $command = new FlushCommand($this->createStub(QueueInterface::class), null);
-        $method = new \ReflectionMethod($command, 'waitForRequestSlot');
+        $method = new ReflectionMethod($command, 'waitForRequestSlot');
         $next = 0.0;
         $start = microtime(true);
         $method->invokeArgs($command, [5, &$next]);
@@ -262,9 +290,22 @@ final class FlushCommandTest extends TestCase
             '{"trace":{"empty":{},"numeric":{"0":"value"}}}' . "\n{\"type\":\"event\"}\n{}",
             [new Response(200)]
         );
-        $header = json_decode(explode("\n", gzdecode((string)$requests[0]->getBody()))[0]);
-        self::assertInstanceOf(\stdClass::class, $header->trace->empty);
-        self::assertInstanceOf(\stdClass::class, $header->trace->numeric);
+        $request = $requests[0] ?? null;
+        self::assertInstanceOf(RequestInterface::class, $request);
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+        [$headerJson] = explode("\n", $this->decodeGzipRequest($request), 2);
+        $header = json_decode($headerJson, false, 512, JSON_THROW_ON_ERROR);
+        if (!$header instanceof stdClass) {
+            throw new RuntimeException('Envelope header must decode to an object.');
+        }
+
+        $trace = $header->trace ?? null;
+        if (!$trace instanceof stdClass) {
+            throw new RuntimeException('Envelope trace must decode to an object.');
+        }
+
+        self::assertInstanceOf(stdClass::class, $trace->empty ?? null);
+        self::assertInstanceOf(stdClass::class, $trace->numeric ?? null);
     }
 
     #[Test]
@@ -273,10 +314,27 @@ final class FlushCommandTest extends TestCase
         $payload = "{}\n{\"type\":\"transaction\"}\n"
             . '{"extra":{"empty":{},"numeric":{"0":"value"}},"spans":[{"op":"middleware.in"},{"op":"db","data":{}}]}';
         [, $requests] = $this->executeWithResponses($payload, [new Response(413), new Response(200)]);
-        $body = json_decode(explode("\n", gzdecode((string)$requests[1]->getBody()), 3)[2]);
-        self::assertInstanceOf(\stdClass::class, $body->extra->empty);
-        self::assertInstanceOf(\stdClass::class, $body->extra->numeric);
-        self::assertInstanceOf(\stdClass::class, $body->spans[0]->data);
+        $request = $requests[1] ?? null;
+        self::assertInstanceOf(RequestInterface::class, $request);
+        [, , $bodyJson] = explode("\n", $this->decodeGzipRequest($request), 3);
+        $body = json_decode($bodyJson, false, 512, JSON_THROW_ON_ERROR);
+        if (!$body instanceof stdClass) {
+            throw new RuntimeException('Transaction body must decode to an object.');
+        }
+
+        $extra = $body->extra ?? null;
+        if (!$extra instanceof stdClass) {
+            throw new RuntimeException('Transaction extra must decode to an object.');
+        }
+
+        self::assertInstanceOf(stdClass::class, $extra->empty ?? null);
+        self::assertInstanceOf(stdClass::class, $extra->numeric ?? null);
+        $spans = $body->spans ?? null;
+        if (!is_array($spans) || !isset($spans[0]) || !$spans[0] instanceof stdClass) {
+            throw new RuntimeException('Transaction spans must contain an object.');
+        }
+
+        self::assertInstanceOf(stdClass::class, $spans[0]->data ?? null);
     }
 
     #[Test]
@@ -294,9 +352,9 @@ final class FlushCommandTest extends TestCase
     #[Test]
     public function unreadableResponseBodyDoesNotPreventPlainRetry(): void
     {
-        $stream = $this->createMock(\Psr\Http\Message\StreamInterface::class);
+        $stream = $this->createMock(StreamInterface::class);
         $stream->expects(self::once())->method('read')->with(2048)
-            ->willThrowException(new \RuntimeException('Read failed'));
+            ->willThrowException(new RuntimeException('Read failed'));
         [$tester, $requests] = $this->executeWithResponses(
             $this->transactionPayload(),
             [new Response(415, [], $stream), new Response(200)]
@@ -312,7 +370,7 @@ final class FlushCommandTest extends TestCase
     {
         $queue = $this->createMock(QueueInterface::class);
         $entries = [new Entry($payload), new Entry($this->transactionPayload()), null];
-        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries) {
+        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries): ?Entry {
             $identifier = count($entries) === 3 ? 'bad.entry' : 'good.entry';
             return array_shift($entries);
         });
@@ -325,6 +383,9 @@ final class FlushCommandTest extends TestCase
         self::assertStringContainsString('invalid envelope; retained', $tester->getDisplay());
     }
 
+    /**
+     * @return list<array{string}>
+     */
     public static function malformedEnvelopes(): array
     {
         return [['not an envelope'], ["{invalid}\n{}\n{}"], ["[]\n{}\n{}"]];
@@ -336,7 +397,7 @@ final class FlushCommandTest extends TestCase
         $queue = $this->createMock(QueueInterface::class);
         $entries = [new Entry("{}\n{\"type\":\"transaction\"}\n{\"spans\":false}"),
             new Entry($this->transactionPayload()), null];
-        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries) {
+        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries): ?Entry {
             $identifier = count($entries) === 3 ? 'bad.entry' : 'good.entry';
             return array_shift($entries);
         });
@@ -358,29 +419,38 @@ final class FlushCommandTest extends TestCase
         return "{}\n{\"type\":\"transaction\"}\n{\"spans\":[{\"op\":\"middleware.in\"},{\"op\":\"db\"}]}";
     }
 
+    /**
+     * @param non-empty-list<Response> $responses
+     * @return array{CommandTester, ArrayObject<int, RequestInterface>}
+     */
     private function executeWithResponses(string $payload, array $responses): array
     {
         $queue = $this->createMock(QueueInterface::class);
         $queue->method('count')->willReturn(1);
         $entries = [new Entry($payload), null];
-        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries) {
+        $queue->method('pop')->willReturnCallback(static function (string &$identifier) use (&$entries): ?Entry {
             $identifier = 'test.entry';
             return array_shift($entries);
         });
         $finalCode = $responses[array_key_last($responses)]->getStatusCode();
-        $queue->expects($finalCode === 200 || $finalCode === 400 || $finalCode === 413 ? self::once() : self::never())
+        $queue->expects(in_array($finalCode, [200, 400, 413], true) ? self::once() : self::never())
             ->method('remove')->with('test.entry')->willReturn(true);
         if ($responses[0]->getStatusCode() === 400) {
             array_unshift($responses, new Response(400));
         }
-        $requests = new \ArrayObject();
+
+        /** @var ArrayObject<int, RequestInterface> $requests */
+        $requests = new ArrayObject();
         $http = $this->createMock(HttpClientInterface::class);
         $http->expects(self::exactly(count($responses) + 1))->method('sendRequest')->willReturnCallback(
-            static function (RequestInterface $request) use ($requests, &$responses) {
-                if ($request->getHeaderLine('Content-Encoding') === 'gzip'
-                    && substr_count(gzdecode((string)$request->getBody()), "\n") === 1) {
+            function (RequestInterface $request) use ($requests, &$responses): ?Response {
+                if (
+                    $request->getHeaderLine('Content-Encoding') === 'gzip'
+                    && substr_count($this->decodeGzipRequest($request), "\n") === 1
+                ) {
                     return new Response(200);
                 }
+
                 $requests[] = $request;
                 return array_shift($responses);
             }
@@ -390,10 +460,18 @@ final class FlushCommandTest extends TestCase
         return [$tester, $requests];
     }
 
+    private function decodeGzipRequest(RequestInterface $request): string
+    {
+        $payload = gzdecode((string)$request->getBody());
+        self::assertNotFalse($payload, 'Request body must contain a valid gzip envelope.');
+
+        return $payload;
+    }
+
     private function command(QueueInterface $queue, HttpClientInterface $http): FlushCommand
     {
         $client = ClientBuilder::create(['dsn' => self::DSN, 'default_integrations' => false])->getClient();
-        return new class($queue, $client, new Psr18Client($http)) extends FlushCommand {
+        return new class ($queue, $client, new Psr18Client($http)) extends FlushCommand {
             public function __construct(
                 QueueInterface $queue,
                 \Sentry\ClientInterface $client,

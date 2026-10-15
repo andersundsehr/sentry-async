@@ -2,14 +2,18 @@
 
 declare(strict_types=1);
 
+use AUS\SentryAsync\Queue\FileQueue;
+use AUS\SentryAsync\Factory\EntryFactory;
+use AUS\SentryAsync\Entry\Entry;
+
 require $argv[1];
 
-$queue = new \AUS\SentryAsync\Queue\FileQueue(
+$queue = new FileQueue(
     10,
     false,
     $argv[2],
-    new \AUS\SentryAsync\Factory\EntryFactory(\AUS\SentryAsync\Entry\Entry::class)
+    new EntryFactory(Entry::class)
 );
 for ($i = 0; $i < 20; $i++) {
-    $queue->push(new \AUS\SentryAsync\Entry\Entry('concurrent event'));
+    $queue->push(new Entry('concurrent event'));
 }
