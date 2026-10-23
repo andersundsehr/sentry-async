@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace AUS\SentryAsync\DependencyInjection;
 
 use AUS\SentryAsync\Entry\Entry;
