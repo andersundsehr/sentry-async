@@ -48,9 +48,7 @@ class FileQueue implements QueueInterface
      */
     public function pop(string &$identifier): ?EntryInterface
     {
-        if (null === $this->filesystemIterator) {
-            $this->filesystemIterator = new FilesystemIterator($this->directory, FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME);
-        }
+        $this->filesystemIterator ??= new FilesystemIterator($this->directory, FilesystemIterator::SKIP_DOTS | FilesystemIterator::CURRENT_AS_PATHNAME);
 
         do {
             if (!$this->filesystemIterator->valid()) {
